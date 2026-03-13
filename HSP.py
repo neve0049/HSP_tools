@@ -46,13 +46,15 @@ class SolventApp:
         # Configuration des poids pour le redimensionnement
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=3)
         main_frame.columnconfigure(2, weight=1)
         main_frame.rowconfigure(0, weight=1)
+        main_frame.rowconfigure(1, weight=0)  # Ligne pour la légende
         
         # Frame gauche (listes)
         left_frame = ttk.Frame(main_frame, padding="10")
-        left_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        left_frame.grid(row=0, column=0, rowspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # Frame centre (graphique 3D)
         center_frame = ttk.Frame(main_frame, padding="10")
@@ -60,9 +62,14 @@ class SolventApp:
         center_frame.columnconfigure(0, weight=1)
         center_frame.rowconfigure(0, weight=1)
         
+        # Frame pour la légende (en dessous des listes et à gauche)
+        legend_frame = ttk.LabelFrame(main_frame, text="Legend", padding="5")
+        legend_frame.grid(row=1, column=1, sticky=(tk.W, tk.E, tk.S), padx=10, pady=5)
+        legend_frame.columnconfigure(0, weight=1)
+        
         # Frame droite (boutons)
         right_frame = ttk.Frame(main_frame, padding="10")
-        right_frame.grid(row=0, column=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+        right_frame.grid(row=0, column=2, rowspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # Création des trois listes
         self.create_list_frames(left_frame)
@@ -70,15 +77,110 @@ class SolventApp:
         # Création du graphique 3D
         self.setup_3d_plot(center_frame)
         
+        # Création de la légende
+        self.setup_legend(legend_frame)
+        
         # Création des boutons de droite
         self.setup_right_buttons(right_frame)
+    
+    def setup_legend(self, parent):
+        """Crée un frame pour afficher la légende"""
+        # Créer un canvas avec scrollbar pour la légende
+        legend_canvas = tk.Canvas(parent, height=100)
+        legend_scrollbar = ttk.Scrollbar(parent, orient="horizontal", command=legend_canvas.xview)
+        legend_scrollable_frame = ttk.Frame(legend_canvas)
+        
+        legend_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: legend_canvas.configure(scrollregion=legend_canvas.bbox("all"))
+        )
+        
+        legend_canvas.create_window((0, 0), window=legend_scrollable_frame, anchor="nw")
+        legend_canvas.configure(xscrollcommand=legend_scrollbar.set)
+        
+        legend_canvas.pack(side="top", fill="x", expand=True)
+        legend_scrollbar.pack(side="bottom", fill="x")
+        
+        # Frame pour contenir les éléments de légende
+        self.legend_items_frame = ttk.Frame(legend_scrollable_frame)
+        self.legend_items_frame.pack(fill="x", expand=True)
+    
+    def update_legend(self):
+        """Met à jour l'affichage de la légende"""
+        # Effacer les éléments existants
+        for widget in self.legend_items_frame.winfo_children():
+            widget.destroy()
+        
+        # Créer un conteneur pour organiser les éléments de légende
+        items_frame = ttk.Frame(self.legend_items_frame)
+        items_frame.pack(fill="x", expand=True)
+        
+        row = 0
+        col = 0
+        max_cols = 4  # Nombre maximum d'éléments par ligne
+        
+        # Ajouter les solvants à la légende
+        for item in self.solvent_list:
+            self.create_legend_item(items_frame, item, "●", row, col)
+            col += 1
+            if col >= max_cols:
+                col = 0
+                row += 1
+        
+        # Ajouter les mélanges à la légende
+        for item in self.mixture_list:
+            self.create_legend_item(items_frame, item, "■", row, col)
+            col += 1
+            if col >= max_cols:
+                col = 0
+                row += 1
+        
+        # Ajouter les analytes à la légende
+        for item in self.analyte_list:
+            self.create_legend_item(items_frame, item, "▲", row, col)
+            col += 1
+            if col >= max_cols:
+                col = 0
+                row += 1
+        
+        # Forcer la mise à jour
+        self.legend_items_frame.update_idletasks()
+    
+    def create_legend_item(self, parent, item, symbol, row, col):
+        """Crée un élément individuel dans la légende"""
+        # Frame pour un élément de légende
+        item_frame = ttk.Frame(parent)
+        item_frame.grid(row=row, column=col, padx=10, pady=2, sticky="w")
+        
+        # Symbole coloré
+        symbol_label = tk.Label(item_frame, text=symbol, fg=item['color'], 
+                               font=('Arial', 14, 'bold'))
+        symbol_label.pack(side="left", padx=(0, 5))
+        
+        # Nom du composé (tronqué si trop long)
+        name = item['name']
+        if len(name) > 20:
+            name = name[:17] + "..."
+        
+        name_label = tk.Label(item_frame, text=name, font=('Arial', 9))
+        name_label.pack(side="left")
+        
+        # Type de point
+        if symbol == "●":
+            type_label = tk.Label(item_frame, text="(S)", font=('Arial', 8), fg="gray")
+        elif symbol == "■":
+            type_label = tk.Label(item_frame, text="(M)", font=('Arial', 8), fg="gray")
+        else:
+            type_label = tk.Label(item_frame, text="(A)", font=('Arial', 8), fg="gray")
+        
+        type_label.pack(side="left", padx=(5, 0))
         
     def create_list_frames(self, parent):
         # Configuration des poids pour les listes
         parent.columnconfigure(0, weight=1)
         parent.columnconfigure(1, weight=1)
         parent.columnconfigure(2, weight=1)
-        parent.rowconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
         
         # Liste 1: Solvent
         frame1 = ttk.LabelFrame(parent, text="Solvent", padding="5")
@@ -134,6 +236,9 @@ class SolventApp:
         self.ax.set_xlabel('δD')
         self.ax.set_ylabel('δP')
         self.ax.set_zlabel('δH')
+        
+        # Désactiver la légende automatique de matplotlib
+        self.ax.legend_ = None
         
         # Canvas pour intégrer dans tkinter
         self.canvas = FigureCanvasTkAgg(self.fig, parent)
@@ -540,24 +645,26 @@ class SolventApp:
         self.ax.set_ylabel('δP')
         self.ax.set_zlabel('δH')
         
+        # Désactiver la légende automatique
+        self.ax.legend_ = None
+        
         # Plotter les solvants
         for item in self.solvent_list:
             self.ax.scatter(item['dd'], item['dp'], item['dh'], 
-                          c=item['color'], marker='o', s=100, label=item['name'])
+                          c=item['color'], marker='o', s=100)
         
         # Plotter les mélanges
         for item in self.mixture_list:
             self.ax.scatter(item['dd'], item['dp'], item['dh'], 
-                          c=item['color'], marker='s', s=100, label=item['name'])
+                          c=item['color'], marker='s', s=100)
         
         # Plotter les analytes
         for item in self.analyte_list:
             self.ax.scatter(item['dd'], item['dp'], item['dh'], 
-                          c=item['color'], marker='^', s=100, label=item['name'])
+                          c=item['color'], marker='^', s=100)
         
-        # Ajouter une légende si nécessaire
-        if self.solvent_list or self.mixture_list or self.analyte_list:
-            self.ax.legend()
+        # Mettre à jour la légende personnalisée
+        self.update_legend()
         
         self.canvas.draw()
     
