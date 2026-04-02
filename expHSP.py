@@ -50,117 +50,80 @@ class HSPSphere:
         return self.distance_to(solvent) <= self.radius
 
 class HSPSphereOptimizer:
-    """Optimiseur pour trouver la meilleure sphère HSP"""
-    
-    def __init__(self, good_solvents: List[Solvent], bad_solvents: List[Solvent]):
+    """Optimisation HSP robuste (centre optimal + rayon automatique)"""
+
+    def __init__(self, good_solvents, bad_solvents):
         self.good_solvents = good_solvents
         self.bad_solvents = bad_solvents
-        self.all_solvents = good_solvents + bad_solvents
-        
-    def calculate_fit_percentage(self, sphere: HSPSphere) -> float:
-        """Calcule le pourcentage de fit pour une sphère donnée"""
-        correct = 0
-        total = 0
-        
-        # Vérifier les bons solvants (doivent être à l'intérieur)
-        for solvent in self.good_solvents:
-            if sphere.is_inside(solvent):
-                correct += 1
-            total += 1
-        
-        # Vérifier les mauvais solvants (doivent être à l'extérieur)
-        for solvent in self.bad_solvents:
-            if not sphere.is_inside(solvent):
-                correct += 1
-            total += 1
-            
-        return (correct / total) * 100 if total > 0 else 0
-    
-    def calculate_error_function(self, sphere: HSPSphere) -> float:
+
+    def distance(self, center, solvent):
+        dD, dP, dH = center
+        return math.sqrt(
+            4 * (dD - solvent.dD)**2 +
+            (dP - solvent.dP)**2 +
+            (dH - solvent.dH)**2
+        )
+
+    def compute_radius(self, center):
+        """Rayon = distance max des bons solvants"""
+        return max(self.distance(center, s) for s in self.good_solvents)
+
+    def objective(self, center):
         """
-        Calcule la fonction d'erreur pour l'optimisation.
-        Similaire à la formule utilisée dans Excel: (R_^(-1/$H$2)*$N$102)
+        Objectif :
+        - minimiser le rayon
+        - pénaliser les mauvais solvants inclus
         """
-        error = 0.0
-        
-        for solvent in self.good_solvents:
-            dist = sphere.distance_to(solvent)
-            if dist > sphere.radius:
-                # Pénalité exponentielle pour les bons solvants en dehors
-                error += math.exp(sphere.radius - dist)
-            else:
-                error += 0
-        
-        for solvent in self.bad_solvents:
-            dist = sphere.distance_to(solvent)
-            if dist < sphere.radius:
-                # Pénalité exponentielle pour les mauvais solvants à l'intérieur
-                error += math.exp(dist - sphere.radius)
-            else:
-                error += 0
-                
-        return error
-    
-    def optimize(self, iterations: int = 1000, learning_rate: float = 0.01) -> HSPSphere:
-        """
-        Optimise la sphère en utilisant une descente de gradient simple
-        """
-        # Initialisation approximative
-        if self.good_solvents:
-            dD_center = sum(s.dD for s in self.good_solvents) / len(self.good_solvents)
-            dP_center = sum(s.dP for s in self.good_solvents) / len(self.good_solvents)
-            dH_center = sum(s.dH for s in self.good_solvents) / len(self.good_solvents)
-            radius = 5.0  # Rayon initial
-        else:
-            return HSPSphere(15.0, 10.0, 8.0, 5.0)
-        
-        sphere = HSPSphere(dD_center, dP_center, dH_center, radius)
-        best_sphere = sphere
-        best_error = self.calculate_error_function(sphere)
-        
-        for _ in range(iterations):
-            # Calculer le gradient approximatif
-            delta = 0.1
-            
-            # dD
-            sphere_dx = HSPSphere(sphere.dD + delta, sphere.dP, sphere.dH, sphere.radius)
-            sphere_dx_neg = HSPSphere(sphere.dD - delta, sphere.dP, sphere.dH, sphere.radius)
-            grad_dD = (self.calculate_error_function(sphere_dx) - 
-                       self.calculate_error_function(sphere_dx_neg)) / (2 * delta)
-            
-            # dP
-            sphere_dy = HSPSphere(sphere.dD, sphere.dP + delta, sphere.dH, sphere.radius)
-            sphere_dy_neg = HSPSphere(sphere.dD, sphere.dP - delta, sphere.dH, sphere.radius)
-            grad_dP = (self.calculate_error_function(sphere_dy) - 
-                       self.calculate_error_function(sphere_dy_neg)) / (2 * delta)
-            
-            # dH
-            sphere_dz = HSPSphere(sphere.dD, sphere.dP, sphere.dH + delta, sphere.radius)
-            sphere_dz_neg = HSPSphere(sphere.dD, sphere.dP, sphere.dH - delta, sphere.radius)
-            grad_dH = (self.calculate_error_function(sphere_dz) - 
-                       self.calculate_error_function(sphere_dz_neg)) / (2 * delta)
-            
-            # radius
-            sphere_dr = HSPSphere(sphere.dD, sphere.dP, sphere.dH, sphere.radius + delta)
-            sphere_dr_neg = HSPSphere(sphere.dD, sphere.dP, sphere.dH, sphere.radius - delta)
-            grad_r = (self.calculate_error_function(sphere_dr) - 
-                      self.calculate_error_function(sphere_dr_neg)) / (2 * delta)
-            
-            # Mise à jour
-            new_dD = sphere.dD - learning_rate * grad_dD
-            new_dP = sphere.dP - learning_rate * grad_dP
-            new_dH = sphere.dH - learning_rate * grad_dH
-            new_r = max(0.1, sphere.radius - learning_rate * grad_r)  # rayon >= 0.1
-            
-            new_sphere = HSPSphere(new_dD, new_dP, new_dH, new_r)
-            new_error = self.calculate_error_function(new_sphere)
-            
-            if new_error < best_error:
-                best_error = new_error
-                best_sphere = new_sphere
-                sphere = new_sphere
-        
-        return best_sphere
+        R = self.compute_radius(center)
+
+        penalty = 0
+        for s in self.bad_solvents:
+            d = self.distance(center, s)
+            if d < R:
+                penalty += (R - d)**2  # pénalité quadratique
+
+        return R + 2 * penalty  # pondération ajustable
+
+    def optimize(self, iterations=3000, step=0.1):
+        """Descente simple + random perturbation"""
+
+        # initialisation = barycentre des bons solvants
+        dD = np.mean([s.dD for s in self.good_solvents])
+        dP = np.mean([s.dP for s in self.good_solvents])
+        dH = np.mean([s.dH for s in self.good_solvents])
+
+        best_center = np.array([dD, dP, dH])
+        best_score = self.objective(best_center)
+
+        for i in range(iterations):
+            # exploration aléatoire
+            candidate = best_center + np.random.uniform(-step, step, 3)
+
+            score = self.objective(candidate)
+
+            if score < best_score:
+                best_score = score
+                best_center = candidate
+
+            # réduction progressive du step
+            if i % 500 == 0:
+                step *= 0.7
+
+        # calcul final
+        R = self.compute_radius(best_center)
+
+        return HSPSphere(best_center[0], best_center[1], best_center[2], R)
+
+    def evaluate(self, sphere):
+        """Évalue la sphère finale"""
+        inside_bad = 0
+
+        for s in self.bad_solvents:
+            d = sphere.distance_to(s)
+            if d <= sphere.radius:
+                inside_bad += 1
+
+        return inside_bad
 
 class HSP3DVisualizer:
     """Visualisateur 3D pour les sphères HSP"""
@@ -680,28 +643,34 @@ class HSPCalculatorApp:
         self.update_visualization()
     
     def optimize_sphere(self):
-        """Optimise la sphère HSP"""
-        if len(self.good_solvents) < 3:
-            messagebox.showwarning("Attention", "Sélectionnez au moins 3 bons solvants pour l'optimisation")
-            return
-        
-        self.result_text.delete(1.0, tk.END)
-        self.result_text.insert(tk.END, "Optimisation de la sphère en cours...\n")
-        self.root.update()
-        
-        optimizer = HSPSphereOptimizer(self.good_solvents, self.bad_solvents)
-        best_sphere = optimizer.optimize(iterations=2000, learning_rate=0.05)
-        
-        self.current_sphere = best_sphere
-        self.dD_var.set(f"{best_sphere.dD:.3f}")
-        self.dP_var.set(f"{best_sphere.dP:.3f}")
-        self.dH_var.set(f"{best_sphere.dH:.3f}")
-        self.radius_var.set(f"{best_sphere.radius:.3f}")
-        
-        self.result_text.insert(tk.END, "Optimisation terminée!\n\n")
-        
-        # Recalculer les distances avec la nouvelle sphère
-        self.calculate_distances()
+
+    	if len(self.good_solvents) < 2:
+        	messagebox.showwarning("Attention", "Au moins 2 bons solvants requis")
+        	return
+
+    	self.result_text.delete(1.0, tk.END)
+    	self.result_text.insert(tk.END, "Optimisation robuste en cours...\n")
+    	self.root.update()
+
+    	optimizer = HSPSphereOptimizer(self.good_solvents, self.bad_solvents)
+    	sphere = optimizer.optimize()
+
+    	self.current_sphere = sphere
+
+    	self.dD_var.set(f"{sphere.dD:.3f}")
+    	self.dP_var.set(f"{sphere.dP:.3f}")
+    	self.dH_var.set(f"{sphere.dH:.3f}")
+    	self.radius_var.set(f"{sphere.radius:.3f}")
+
+    	# évaluation
+    	inside_bad = optimizer.evaluate(sphere)
+
+    	self.result_text.insert(tk.END, f"\nCentre optimal:\n")
+    	self.result_text.insert(tk.END, f"dD={sphere.dD:.3f}, dP={sphere.dP:.3f}, dH={sphere.dH:.3f}\n")
+    	self.result_text.insert(tk.END, f"Rayon (auto): {sphere.radius:.3f}\n")
+    	self.result_text.insert(tk.END, f"Mauvais solvants dans la sphère: {inside_bad}\n")
+
+    	self.calculate_distances()
     
     def update_visualization(self):
         """Met à jour la visualisation 3D"""
