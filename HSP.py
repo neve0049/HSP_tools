@@ -8,12 +8,23 @@ from mpl_toolkits.mplot3d import Axes3D
 import subprocess
 import os
 import sys
+import matplotlib
+import random
+
+# Forcer le style avec fond blanc
+matplotlib.rcParams['axes.facecolor'] = 'white'
+matplotlib.rcParams['figure.facecolor'] = 'white'
+matplotlib.rcParams['axes.edgecolor'] = 'black'
+matplotlib.rcParams['grid.color'] = 'gray'
 
 class SolventApp:
     def __init__(self, root):
         self.root = root
         self.root.title("HSP Solvent Application")
         self.root.geometry("1400x800")
+        
+        # Facteur de pondération pour δD
+        self.weight_dd = 4
         
         # Charger la base de données
         self.load_database()
@@ -26,8 +37,20 @@ class SolventApp:
         # Couleurs pour les points
         self.colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
         
-        self.setup_ui()
+        # Liste des couleurs prédéfinies pour les couleurs aléatoires
+        self.random_colors = [
+            '#FF0000', '#0000FF', '#008000', '#FF8C00', '#800080',
+            '#A52A2A', '#FF69B4', '#808080', '#808000', '#00BFFF',
+            '#FF1493', '#00FF00', '#FF00FF', '#00FFFF', '#FFFF00',
+            '#FF4500', '#2E8B57', '#8B008B', '#DC143C', '#006400'
+        ]
         
+        self.setup_ui()
+    
+    def generate_random_color(self):
+        """Génère une couleur aléatoire"""
+        return random.choice(self.random_colors)
+    
     def load_database(self):
         """Charge la base de données Excel"""
         try:
@@ -228,11 +251,24 @@ class SolventApp:
                   command=lambda: self.remove_item('analyte')).pack(side=tk.LEFT, padx=2)
         
     def setup_3d_plot(self, parent):
-        # Création de la figure 3D
-        self.fig = Figure(figsize=(8, 6))
+        # Création de la figure 3D avec fond blanc
+        self.fig = Figure(figsize=(8, 6), facecolor='white')
         self.ax = self.fig.add_subplot(111, projection='3d')
         
-        # Configuration des axes
+        # Forcer le fond des axes en blanc
+        self.ax.set_facecolor('white')
+        
+        # Forcer les panneaux (les faces du cube 3D) en blanc
+        self.ax.xaxis.pane.set_facecolor('white')
+        self.ax.yaxis.pane.set_facecolor('white')
+        self.ax.zaxis.pane.set_facecolor('white')
+        
+        # Rendre les panneaux opaques
+        self.ax.xaxis.pane.set_alpha(1.0)
+        self.ax.yaxis.pane.set_alpha(1.0)
+        self.ax.zaxis.pane.set_alpha(1.0)
+        
+        # Configurer les axes
         self.ax.set_xlabel('δD')
         self.ax.set_ylabel('δP')
         self.ax.set_zlabel('δH')
@@ -271,14 +307,18 @@ class SolventApp:
         color_frame = ttk.Frame(dialog)
         color_frame.pack(pady=10)
         ttk.Label(color_frame, text="Color:").pack(side=tk.LEFT)
-        color_btn = ttk.Button(color_frame, text="Choose Color", 
-                              command=lambda: self.choose_color(color_label))
-        color_btn.pack(side=tk.LEFT, padx=5)
-        color_label = ttk.Label(color_frame, text="Not chosen", foreground="red")
-        color_label.pack(side=tk.LEFT)
         
         # Variable pour stocker la couleur choisie
         selected_color = [None]
+        
+        color_label = ttk.Label(color_frame, text="Not chosen", foreground="red")
+        color_label.pack(side=tk.LEFT)
+        
+        def generate_default_color():
+            """Génère une couleur aléatoire par défaut"""
+            color = self.generate_random_color()
+            selected_color[0] = color
+            color_label.config(text="Random", foreground=color)
         
         def choose_color_local():
             color = colorchooser.askcolor()[1]
@@ -286,7 +326,16 @@ class SolventApp:
                 selected_color[0] = color
                 color_label.config(text="Chosen", foreground=color)
         
-        color_btn.config(command=choose_color_local)
+        # Bouton pour choisir une couleur personnalisée
+        color_btn = ttk.Button(color_frame, text="Choose Color", command=choose_color_local)
+        color_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Bouton pour générer une couleur aléatoire
+        random_btn = ttk.Button(color_frame, text="Random Color", command=generate_default_color)
+        random_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Appliquer une couleur aléatoire par défaut
+        generate_default_color()
         
         # Frame pour choisir dans la base (AVEC RECHERCHE)
         db_frame = ttk.LabelFrame(dialog, text="Choose from database", padding="10")
@@ -308,7 +357,6 @@ class SolventApp:
         scrollbar = ttk.Scrollbar(list_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Utiliser une Listbox au lieu d'une Combobox pour une meilleure visualisation
         compound_listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, height=8)
         compound_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
@@ -319,18 +367,15 @@ class SolventApp:
         for compound in compounds:
             compound_listbox.insert(tk.END, compound)
         
-        # Fonction de recherche
         def update_list(*args):
             search_term = search_var.get().lower()
             compound_listbox.delete(0, tk.END)
-            
             for compound in compounds:
                 if search_term in compound.lower():
                     compound_listbox.insert(tk.END, compound)
         
-        search_var.trace('w', update_list)
+        search_var.trace_add('write', update_list)
         
-        # Double-clic pour sélectionner rapidement
         def on_double_click(event):
             selection = compound_listbox.curselection()
             if selection:
@@ -339,7 +384,6 @@ class SolventApp:
         
         compound_listbox.bind('<Double-Button-1>', on_double_click)
         
-        # Bouton pour ajouter le composé sélectionné
         btn_frame = ttk.Frame(db_frame)
         btn_frame.pack(fill=tk.X, pady=5)
         
@@ -384,13 +428,16 @@ class SolventApp:
         color_frame = ttk.Frame(dialog)
         color_frame.pack(pady=10)
         ttk.Label(color_frame, text="Mixture Color:").pack(side=tk.LEFT)
-        color_btn = ttk.Button(color_frame, text="Choose Color", 
-                              command=lambda: self.choose_color(color_label))
-        color_btn.pack(side=tk.LEFT, padx=5)
+        
+        selected_color = [None]
         color_label = ttk.Label(color_frame, text="Not chosen", foreground="red")
         color_label.pack(side=tk.LEFT)
         
-        selected_color = [None]
+        def generate_default_color():
+            """Génère une couleur aléatoire par défaut"""
+            color = self.generate_random_color()
+            selected_color[0] = color
+            color_label.config(text="Random", foreground=color)
         
         def choose_color_local():
             color = colorchooser.askcolor()[1]
@@ -398,7 +445,14 @@ class SolventApp:
                 selected_color[0] = color
                 color_label.config(text="Chosen", foreground=color)
         
-        color_btn.config(command=choose_color_local)
+        color_btn = ttk.Button(color_frame, text="Choose Color", command=choose_color_local)
+        color_btn.pack(side=tk.LEFT, padx=5)
+        
+        random_btn = ttk.Button(color_frame, text="Random Color", command=generate_default_color)
+        random_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Appliquer une couleur aléatoire par défaut
+        generate_default_color()
         
         # Frame principal avec deux colonnes
         main_mixture_frame = ttk.Frame(dialog)
@@ -430,7 +484,6 @@ class SolventApp:
         for compound in compounds:
             available_listbox.insert(tk.END, compound)
         
-        # Fonction de recherche
         def update_available_list(*args):
             search_term = search_var.get().lower()
             available_listbox.delete(0, tk.END)
@@ -438,7 +491,7 @@ class SolventApp:
                 if search_term in compound.lower():
                     available_listbox.insert(tk.END, compound)
         
-        search_var.trace('w', update_available_list)
+        search_var.trace_add('write', update_available_list)
         
         # Frame droite - Composés sélectionnés
         selected_frame = ttk.LabelFrame(main_mixture_frame, text="Selected compounds", padding="10")
@@ -640,6 +693,15 @@ class SolventApp:
         # Effacer le graphique
         self.ax.clear()
         
+        # Forcer le fond en blanc après clear
+        self.ax.set_facecolor('white')
+        self.ax.xaxis.pane.set_facecolor('white')
+        self.ax.yaxis.pane.set_facecolor('white')
+        self.ax.zaxis.pane.set_facecolor('white')
+        self.ax.xaxis.pane.set_alpha(1.0)
+        self.ax.yaxis.pane.set_alpha(1.0)
+        self.ax.zaxis.pane.set_alpha(1.0)
+        
         # Configurer les axes
         self.ax.set_xlabel('δD')
         self.ax.set_ylabel('δP')
@@ -685,8 +747,9 @@ class SolventApp:
             
             # Distances avec les solvants
             for solvent in self.solvent_list:
+                # Distance avec pondération du δD par 4
                 distance = np.sqrt(
-                    (solvent['dd'] - analyte['dd'])**2 +
+                    self.weight_dd * (solvent['dd'] - analyte['dd'])**2 +
                     (solvent['dp'] - analyte['dp'])**2 +
                     (solvent['dh'] - analyte['dh'])**2
                 )
@@ -694,8 +757,9 @@ class SolventApp:
             
             # Distances avec les mélanges
             for mixture in self.mixture_list:
+                # Distance avec pondération du δD par 4
                 distance = np.sqrt(
-                    (mixture['dd'] - analyte['dd'])**2 +
+                    self.weight_dd * (mixture['dd'] - analyte['dd'])**2 +
                     (mixture['dp'] - analyte['dp'])**2 +
                     (mixture['dh'] - analyte['dh'])**2
                 )
